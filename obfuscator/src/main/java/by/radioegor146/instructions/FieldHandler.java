@@ -21,26 +21,19 @@ public class FieldHandler extends GenericInstructionHandler<FieldInsnNode> {
         }
 
         int classId = context.getCachedClasses().getId(node.owner);
-
-        context.output.append(String.format("if (!cclasses[%d]  || env->IsSameObject(cclasses[%d], NULL)) { cclasses_mtx[%d].lock(); if (!cclasses[%d] || env->IsSameObject(cclasses[%d], NULL)) { if (jclass clazz = %s) { cclasses[%d] = (jclass) env->NewWeakGlobalRef(clazz); env->DeleteLocalRef(clazz); } } cclasses_mtx[%d].unlock(); %s } ",
-                classId,
-                classId,
-                classId,
-                classId,
-                classId,
-                MethodProcessor.getClassGetter(context, node.owner),
-                classId,
-                classId,
-                trimmedTryCatchBlock));
-
         int fieldId = context.getCachedFields().getId(info);
-        props.put("fieldid", context.getCachedFields().getPointer(info));
-
-        context.output.append(String.format("if (!cfields[%d]) { cfields[%d] = env->Get%sFieldID(%s, %s, %s); %s  } ",
+        props.put("fieldid", "f_use");
+        MethodProcessor.declareFieldUse(context);
+        MethodProcessor.declareClassUse(context, classId);
+        String fieldKind = isStatic ? "Static" : "";
+        String fastClass = isStatic ? String.format(" ccuse_%d = cclasses[%d];", classId, classId) : "";
+        context.output.append(String.format("if (cache_classes && cfields[%d]) { f_use = cfields[%d];%s } else { ", fieldId, fieldId, fastClass));
+        MethodProcessor.emitClassResolve(context, classId, node.owner, trimmedTryCatchBlock);
+        context.output.append(String.format(
+                "if (cache_classes && cclasses[%1$d]) { if (!cfields[%2$d]) { cfields[%2$d] = env->Get%3$sFieldID(ccuse_%1$d, %4$s, %5$s); %6$s } f_use = cfields[%2$d]; } else { f_use = env->Get%3$sFieldID(ccuse_%1$d, %4$s, %5$s); %6$s } } ",
+                classId,
                 fieldId,
-                fieldId,
-                isStatic ? "Static" : "",
-                context.getCachedClasses().getPointer(node.owner),
+                fieldKind,
                 context.getStringPool().get(node.name),
                 context.getStringPool().get(node.desc),
                 trimmedTryCatchBlock));

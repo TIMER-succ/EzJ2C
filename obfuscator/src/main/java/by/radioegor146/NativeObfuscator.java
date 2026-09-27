@@ -87,7 +87,7 @@ public class NativeObfuscator {
         stringPool = new StringPool();
         snippets = new Snippets(stringPool);
         cachedStrings = new NodeCache<>("(cstrings[%d])");
-        cachedClasses = new NodeCache<>("(cclasses[%d])");
+        cachedClasses = new NodeCache<>("ccuse_%d");
         cachedMethods = new NodeCache<>("(cmethods[%d])");
         cachedFields = new NodeCache<>("(cfields[%d])");
         methodProcessor = new MethodProcessor(this);

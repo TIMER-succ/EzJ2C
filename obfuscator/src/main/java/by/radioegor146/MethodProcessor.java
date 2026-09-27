@@ -95,14 +95,58 @@ public class MethodProcessor {
                 !method.name.equals("<init>");
     }
 
-    public static String getClassGetter(MethodContext context, String desc) {
-        if (desc.startsWith("[")) {
-            return "env->FindClass(" + context.getStringPool().get(desc) + ")";
+    private static String classLookupRef(MethodContext context, String desc) {
+        String lookup = desc;
+        if (!lookup.startsWith("[") && lookup.startsWith("L") && lookup.endsWith(";")) {
+            lookup = lookup.substring(1, lookup.length() - 1);
         }
-        if (desc.endsWith(";")) {
-            desc = desc.substring(1, desc.length() - 1);
+        if (!lookup.startsWith("[")) {
+            lookup = lookup.replace('/', '.');
         }
-        return "utils::find_class_wo_static(env, classloader, " + context.getCachedStrings().getPointer(desc.replace('/', '.')) + ")";
+        return context.getCachedStrings().getPointer(lookup);
+    }
+
+    public static void declareClassUse(MethodContext context, int classId) {
+        if (context.declaredClassUses.add(classId)) {
+            context.output.append(String.format("jclass ccuse_%d = nullptr; ", classId));
+        }
+    }
+
+    public static void declareFieldUse(MethodContext context) {
+        if (!context.declaredFieldUse) {
+            context.output.append("jfieldID f_use = nullptr; ");
+            context.declaredFieldUse = true;
+        }
+    }
+
+    public static void declareMethodUse(MethodContext context) {
+        if (!context.declaredMethodUse) {
+            context.output.append("jmethodID m_use = nullptr; ");
+            context.declaredMethodUse = true;
+        }
+    }
+
+    public static void emitClassResolve(MethodContext context, int classId, String desc, String onException) {
+        declareClassUse(context, classId);
+        boolean isStatic = Util.getFlag(context.method.access, Opcodes.ACC_STATIC);
+        String receiver = isStatic ? "nullptr" : "obj";
+        String slot = isStatic ? "nullptr" : "&receiver_loader";
+        context.output.append(String.format(
+                "if (cache_classes && cclasses[%1$d]) ccuse_%1$d = cclasses[%1$d]; " +
+                        "if (!ccuse_%1$d) { " +
+                        "if (cache_classes) cclasses_mtx[%1$d].lock(); " +
+                        "if (!cache_classes || !cclasses[%1$d]) { " +
+                        "bool cacheable = false; " +
+                        "if (jclass clazz = utils::resolve_class(env, &cdefining_head, classloader, %2$s, %3$s, %4$s, &cacheable)) { " +
+                        "if (cacheable && cache_classes) { cclasses[%1$d] = (jclass) env->NewGlobalRef(clazz); env->DeleteLocalRef(clazz); ccuse_%1$d = cclasses[%1$d]; } " +
+                        "else { ccuse_%1$d = clazz; } " +
+                        "} } else { ccuse_%1$d = cclasses[%1$d]; } " +
+                        "if (cache_classes) cclasses_mtx[%1$d].unlock(); %5$s } ",
+                classId,
+                classLookupRef(context, desc),
+                receiver,
+                slot,
+                onException));
     }
 
     public void processMethod(MethodContext context) {
@@ -160,25 +204,44 @@ public class MethodProcessor {
             output.append("    env->DeleteLocalRef(ignored_hidden);\n");
         }
 
+        String returnZero = String.format("return (%s) 0;", CPP_TYPES[context.ret.getSort()]);
         if (!isStatic) {
-            output.append("    jclass clazz = utils::get_class_from_object(env, obj);\n");
-            output.append("    if (env->ExceptionCheck()) { ").append(String.format("return (%s) 0;",
-                    CPP_TYPES[context.ret.getSort()])).append(" }\n");
+            output.append("    if (obj == nullptr) { utils::throw_re(env, \"java/lang/NullPointerException\", \"null receiver\", 0); ")
+                    .append(returnZero).append(" }\n");
+            output.append("    jobject receiver_loader = nullptr;\n");
         }
-        output.append("    jobject classloader = utils::get_classloader_from_class(env, clazz);\n");
-        output.append("    if (env->ExceptionCheck()) { ").append(String.format("return (%s) 0;",
-                CPP_TYPES[context.ret.getSort()])).append(" }\n");
-        output.append("    if (classloader == nullptr) { env->FatalError(").append(context.getStringPool()
-                .get("classloader == null")).append(String.format("); return (%s) 0; }\n", CPP_TYPES[context.ret.getSort()]));
-        output.append("\n");
+        output.append("    bool cache_classes = false;\n");
+        output.append("    jobject classloader = nullptr;\n");
         if (!isStatic) {
-            output.append("    env->DeleteLocalRef(clazz);\n");
-            output.append("    clazz = utils::find_class_wo_static(env, classloader, ")
+            output.append("    jclass clazz = nullptr;\n");
+        }
+        output.append("    if (utils::defining_binding* binding = utils::single_defining_binding(&cdefining_head)) {\n");
+        output.append("        classloader = binding->loader;\n");
+        output.append("        cache_classes = true;\n");
+        if (!isStatic) {
+            output.append("        clazz = binding->clazz;\n");
+        }
+        output.append("    } else {\n");
+        if (isStatic) {
+            output.append("        classloader = utils::get_classloader_from_class(env, clazz);\n");
+            output.append("        if (env->ExceptionCheck()) { ").append(returnZero).append(" }\n");
+        } else {
+            output.append("        jclass runtime_clazz = utils::get_class_from_object(env, obj);\n");
+            output.append("        if (env->ExceptionCheck()) { ").append(returnZero).append(" }\n");
+            output.append("        classloader = utils::get_classloader_from_class(env, runtime_clazz);\n");
+            output.append("        if (env->ExceptionCheck()) { ").append(returnZero).append(" }\n");
+            output.append("        env->DeleteLocalRef(runtime_clazz);\n");
+            output.append("        if (classloader == nullptr) { env->FatalError(")
+                    .append(context.getStringPool().get("classloader == null")).append("); ").append(returnZero).append(" }\n");
+            output.append("        clazz = utils::find_class_wo_static(env, classloader, ")
                     .append(context.getCachedStrings().getPointer(context.clazz.name.replace('/', '.')))
                     .append(");\n");
-            output.append("    if (env->ExceptionCheck()) { ").append(String.format("return (%s) 0;",
-                    CPP_TYPES[context.ret.getSort()])).append(" }\n");
+            output.append("        if (env->ExceptionCheck()) { ").append(returnZero).append(" }\n");
         }
+        output.append("    }\n");
+        output.append("    if (classloader == nullptr) { env->FatalError(")
+                .append(context.getStringPool().get("classloader == null")).append("); ").append(returnZero).append(" }\n");
+        output.append("\n");
         output.append("    jobject lookup = nullptr;\n");
 
         if (method.tryCatchBlocks != null) {
@@ -192,19 +255,9 @@ public class MethodProcessor {
             classesForTryCatches.forEach((clazz) -> {
                 int classId = context.getCachedClasses().getId(clazz);
 
-                context.output.append(String.format("    // try-catch-class %s\n", Util.escapeCommentString(clazz)));
-                context.output.append(String.format("    if (!cclasses[%d] || env->IsSameObject(cclasses[%d], NULL)) { cclasses_mtx[%d].lock(); "
-                                + "if (!cclasses[%d] || env->IsSameObject(cclasses[%d], NULL)) { if (jclass clazz = %s) { cclasses[%d] = (jclass) env->NewWeakGlobalRef(clazz); env->DeleteLocalRef(clazz); } } "
-                                + "cclasses_mtx[%d].unlock(); if (env->ExceptionCheck()) { return (%s) 0; } }\n",
-                        classId,
-                        classId,
-                        classId,
-                        classId,
-                        classId,
-                        getClassGetter(context, clazz),
-                        classId,
-                        classId,
-                        CPP_TYPES[context.ret.getSort()]));
+                context.output.append(String.format("    // try-catch-class %s\n    ", Util.escapeCommentString(clazz)));
+                emitClassResolve(context, classId, clazz, String.format("if (env->ExceptionCheck()) { return (%s) 0; }", CPP_TYPES[context.ret.getSort()]));
+                context.output.append("\n");
             });
         }
 

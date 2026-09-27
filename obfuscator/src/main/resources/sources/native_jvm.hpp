@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <unordered_set>
 #include <mutex>
+#include <atomic>
 #include <initializer_list>
 
 #ifndef NATIVE_JVM_HPP_GUARD
@@ -29,12 +30,16 @@
 
 namespace native_jvm::utils {
 
+    struct defining_binding;
+
     void init_utils(JNIEnv *env);
 
     void throw_re(JNIEnv *env, const char *exception_class, const char *error, int line);
 
     jobjectArray create_multidim_array(JNIEnv *env, jobject classloader, jint count, jint required_count,
-        const char *class_name, int line, std::initializer_list<jint> sizes, int dim_index = 0);
+        const char *class_name, int line, std::initializer_list<jint> sizes, int dim_index = 0,
+        jobject receiver = nullptr, jobject *receiver_loader = nullptr,
+        std::atomic<defining_binding *> *defining_head = nullptr);
 
     template <int sort>
     jarray create_array_value(JNIEnv* env, jint size);
@@ -93,6 +98,11 @@ namespace native_jvm::utils {
 
     jclass find_class_wo_static(JNIEnv *env, jobject classloader, jstring class_name);
 
+    jclass find_class_fallback(JNIEnv *env, jobject classloader, jstring class_name, jobject receiver, jobject *receiver_loader);
+
+    jclass resolve_class(JNIEnv *env, std::atomic<defining_binding *> *defining_head, jobject classloader,
+        jstring class_name, jobject receiver, jobject *receiver_loader, bool *cacheable);
+
     jclass get_class_from_object(JNIEnv *env, jobject object);
 
     jobject get_classloader_from_class(JNIEnv *env, jclass clazz);
@@ -105,6 +115,22 @@ namespace native_jvm::utils {
     void clear_refs(JNIEnv *env, std::unordered_set<jobject> &refs);
 
     jstring get_interned(JNIEnv *env, jstring value);
+
+    struct defining_binding {
+        jclass clazz;
+        jobject loader;
+        std::atomic<defining_binding *> next;
+    };
+
+    inline defining_binding *single_defining_binding(std::atomic<defining_binding *> *head) {
+        defining_binding *current = head->load(std::memory_order_acquire);
+        if (current == nullptr || current->next.load(std::memory_order_acquire) != nullptr) {
+            return nullptr;
+        }
+        return current;
+    }
+
+    void publish_defining_binding(JNIEnv *env, std::atomic<defining_binding *> *head, std::mutex *mtx, jclass clazz);
 }
 
 #endif

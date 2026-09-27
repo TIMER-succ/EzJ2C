@@ -59,6 +59,8 @@ public class ClassSourceBuilder implements AutoCloseable {
         if (fields > 0) {
             cppWriter.append(String.format("    jfieldID cfields[%d];\n", fields));
         }
+        cppWriter.append("    std::atomic<utils::defining_binding*> cdefining_head{nullptr};\n");
+        cppWriter.append("    std::mutex cdefining_mtx;\n");
 
         cppWriter.append("\n");
         cppWriter.append("    ");
@@ -132,6 +134,8 @@ public class ClassSourceBuilder implements AutoCloseable {
 
             }
         }
+
+        cppWriter.append("        if (clazz) utils::publish_defining_binding(env, &cdefining_head, &cdefining_mtx, clazz);\n");
 
         cppWriter.append("    }\n");
         cppWriter.append("}");

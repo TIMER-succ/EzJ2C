@@ -181,31 +181,23 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
         }
 
         int classId = context.getCachedClasses().getId(node.owner);
-
-        context.output.append(String.format("if (!cclasses[%d] || env->IsSameObject(cclasses[%d], NULL)) { cclasses_mtx[%d].lock(); if (!cclasses[%d] || env->IsSameObject(cclasses[%d], NULL)) { if (jclass clazz = %s) { cclasses[%d] = (jclass) env->NewWeakGlobalRef(clazz); env->DeleteLocalRef(clazz); } } cclasses_mtx[%d].unlock(); %s } ",
-                classId,
-                classId,
-                classId,
-                classId,
-                classId,
-                MethodProcessor.getClassGetter(context, node.owner),
-                classId,
-                classId,
-                trimmedTryCatchBlock));
-
         CachedMethodInfo methodInfo = new CachedMethodInfo(node.owner, node.name, node.desc, isStatic);
         int methodId = context.getCachedMethods().getId(methodInfo);
-        props.put("methodid", context.getCachedMethods().getPointer(methodInfo));
-
-        context.output.append(
-                String.format("if (!cmethods[%d]) { cmethods[%d] = env->Get%sMethodID(%s, %s, %s); %s  } ",
-                        methodId,
-                        methodId,
-                        isStatic ? "Static" : "",
-                        context.getCachedClasses().getPointer(node.owner),
-                        context.getStringPool().get(node.name),
-                        context.getStringPool().get(node.desc),
-                        trimmedTryCatchBlock));
+        props.put("methodid", "m_use");
+        MethodProcessor.declareMethodUse(context);
+        MethodProcessor.declareClassUse(context, classId);
+        boolean idOnly = node.getOpcode() == Opcodes.INVOKEVIRTUAL || node.getOpcode() == Opcodes.INVOKEINTERFACE;
+        String fastClass = idOnly ? "" : String.format(" ccuse_%d = cclasses[%d];", classId, classId);
+        context.output.append(String.format("if (cache_classes && cmethods[%d]) { m_use = cmethods[%d];%s } else { ", methodId, methodId, fastClass));
+        MethodProcessor.emitClassResolve(context, classId, node.owner, trimmedTryCatchBlock);
+        context.output.append(String.format(
+                "if (cache_classes && cclasses[%1$d]) { if (!cmethods[%2$d]) { cmethods[%2$d] = env->Get%3$sMethodID(ccuse_%1$d, %4$s, %5$s); %6$s } m_use = cmethods[%2$d]; } else { m_use = env->Get%3$sMethodID(ccuse_%1$d, %4$s, %5$s); %6$s } } ",
+                classId,
+                methodId,
+                isStatic ? "Static" : "",
+                context.getStringPool().get(node.name),
+                context.getStringPool().get(node.desc),
+                trimmedTryCatchBlock));
 
         props.put("args", argsBuilder.toString());
     }

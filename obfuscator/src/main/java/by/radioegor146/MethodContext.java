@@ -34,6 +34,12 @@ public class MethodContext {
 
     public int stackPointer;
 
+    public final Set<Integer> declaredClassUses = new HashSet<>();
+
+    public boolean declaredFieldUse;
+
+    public boolean declaredMethodUse;
+
     private final LabelPool labelPool = new LabelPool();
 
     public String cppNativeMethodName;

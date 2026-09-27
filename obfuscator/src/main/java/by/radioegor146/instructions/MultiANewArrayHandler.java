@@ -1,6 +1,8 @@
 package by.radioegor146.instructions;
 
 import by.radioegor146.MethodContext;
+import by.radioegor146.Util;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.MultiANewArrayInsnNode;
 
@@ -23,6 +25,9 @@ public class MultiANewArrayHandler extends GenericInstructionHandler<MultiANewAr
         props.put("dims", String.format("{ %s }", IntStream.range(context.stackPointer - dimensions, context.stackPointer)
                 .mapToObj(i -> String.format("cstack%d.i", i)).collect(Collectors.joining(", "))));
         props.put("returnstackindex", String.valueOf(context.stackPointer - dimensions));
+        boolean isStatic = Util.getFlag(context.method.access, Opcodes.ACC_STATIC);
+        props.put("fb_recv", isStatic ? "nullptr" : "obj");
+        props.put("fb_slot", isStatic ? "nullptr" : "&receiver_loader");
         // TODO
     }
 

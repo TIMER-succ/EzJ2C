@@ -59,16 +59,7 @@ public class LdcHandler extends GenericInstructionHandler<LdcInsnNode> {
             instructionName += "_CLASS";
 
             int classId = context.getCachedClasses().getId(node.cst.toString());
-            context.output.append(String.format("if (!cclasses[%d] || env->IsSameObject(cclasses[%d], NULL)) { cclasses_mtx[%d].lock(); if (!cclasses[%d] || env->IsSameObject(cclasses[%d], NULL)) { if (jclass clazz = %s) { cclasses[%d] = (jclass) env->NewWeakGlobalRef(clazz); env->DeleteLocalRef(clazz); } } cclasses_mtx[%d].unlock(); %s } ",
-                    classId,
-                    classId,
-                    classId,
-                    classId,
-                    classId,
-                    MethodProcessor.getClassGetter(context, node.cst.toString()),
-                    classId,
-                    classId,
-                    trimmedTryCatchBlock));
+            MethodProcessor.emitClassResolve(context, classId, node.cst.toString(), trimmedTryCatchBlock);
             
             props.put("cst_ptr", context.getCachedClasses().getPointer(node.cst.toString()));
         } else {
