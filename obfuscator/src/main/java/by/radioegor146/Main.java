@@ -49,6 +49,10 @@ public class Main {
         @CommandLine.Option(names = {"-a", "--annotations"}, description = "Use annotations to ignore/include native obfuscation")
         private boolean useAnnotations;
 
+        @CommandLine.Option(names = {"-i", "--inline"}, negatable = true, defaultValue = "true",
+                description = "Inline Object getClass and String equals/isEmpty/length (default: ${DEFAULT-VALUE})")
+        private boolean inline;
+
         @CommandLine.Option(names = {"--debug"}, description = "Enable generation of debug .jar file (non-executable)")
         private boolean generateDebugJar;
 
@@ -72,7 +76,7 @@ public class Main {
             }
 
             new NativeObfuscator().process(jarFile.toPath(), Paths.get(outputDirectory),
-                    libs, blackList, whiteList, libraryName, customLibraryDirectory, platform, useAnnotations, generateDebugJar);
+                    libs, blackList, whiteList, libraryName, customLibraryDirectory, platform, useAnnotations, generateDebugJar, inline);
 
             return 0;
         }

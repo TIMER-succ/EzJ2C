@@ -79,7 +79,7 @@ Java `.class` 转 `.cpp`（JNI）工具：把 Java 方法体转译为原生 C++�
 完整 CLI：
 
 ```
-Usage: native-obfuscator [-ahV] [--debug] [-b=<blackListFile>]
+Usage: native-obfuscator [-ahiV] [--debug] [-b=<blackListFile>]
                          [--custom-lib-dir=<customLibraryDirectory>]
                          [-l=<librariesDirectory>] [-p=<platform>]
                          [--plain-lib-name=<libraryName>] [-w=<whiteListFile>]
@@ -94,6 +94,7 @@ Transpiles .jar file into .cpp files and generates output .jar file
                           LoaderUnpack 的自定义库目录
       --debug             生成调试用（不可执行）jar
   -h, --help              显示帮助并退出
+  -i, --[no-]inline       将 Object.getClass 与 String.equals/isEmpty/length 内联为 JNI（默认开）
   -l, --libraries=<librariesDirectory>
                           依赖库目录（可选但推荐）
   -p, --platform=<platform>

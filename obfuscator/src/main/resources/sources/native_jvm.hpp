@@ -116,6 +116,8 @@ namespace native_jvm::utils {
 
     jstring get_interned(JNIEnv *env, jstring value);
 
+    jboolean string_equals(JNIEnv *env, jstring a, jobject b);
+
     struct defining_binding {
         jclass clazz;
         jobject loader;

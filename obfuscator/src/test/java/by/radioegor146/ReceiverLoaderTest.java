@@ -37,7 +37,7 @@ public class ReceiverLoaderTest {
                 Path cpp = output.resolve("cpp");
                 Files.createDirectories(cpp);
                 new NativeObfuscator().process(inputJar, output, Collections.emptyList(), Collections.emptyList(),
-                        null, "native_library", null, platform, true, false);
+                        null, "native_library", null, platform, true, false, true);
                 if (System.getProperty("os.name").toLowerCase().contains("windows")) {
                     String arch = "32".equals(System.getProperty("sun.arch.data.model")) ? "x86" : "x64";
                     ProcessHelper.run(cpp, 120_000, Arrays.asList("cmake", "-DCMAKE_GENERATOR_PLATFORM=" + arch, "."))

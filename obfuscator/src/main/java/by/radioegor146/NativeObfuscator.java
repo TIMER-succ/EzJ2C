@@ -82,6 +82,7 @@ public class NativeObfuscator {
 
     private int currentClassId;
     private String nativeDir;
+    private boolean inline;
 
     public NativeObfuscator() {
         stringPool = new StringPool();
@@ -96,7 +97,8 @@ public class NativeObfuscator {
     public void process(Path inputJarPath, Path outputDir, List<Path> inputLibs,
                         List<String> blackList, List<String> whiteList, String plainLibName,
                         String customLibraryDirectory,
-                        Platform platform, boolean useAnnotations, boolean generateDebugJar) throws IOException {
+                        Platform platform, boolean useAnnotations, boolean generateDebugJar, boolean inline) throws IOException {
+        this.inline = inline;
         if (Files.exists(outputDir) && Files.isSameFile(inputJarPath.toRealPath().getParent(), outputDir.toRealPath())) {
             throw new RuntimeException("Input jar can't be in the same directory as output directory");
         }
@@ -445,5 +447,9 @@ public class NativeObfuscator {
 
     public HiddenMethodsPool getHiddenMethodsPool() {
         return hiddenMethodsPool;
+    }
+
+    public boolean isInline() {
+        return inline;
     }
 }

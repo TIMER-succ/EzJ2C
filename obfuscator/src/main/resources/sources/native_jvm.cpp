@@ -16,6 +16,7 @@ namespace native_jvm::utils {
 
     jclass boolean_array_class;
     jmethodID string_intern_method;
+    jclass string_class;
     jclass class_class;
     jmethodID get_classloader_method;
     jclass object_class;
@@ -24,6 +25,10 @@ namespace native_jvm::utils {
     jmethodID load_class_method;
     jclass no_class_def_found_class;
     jmethodID ncdf_init_method;
+    jclass cached_npe_class;
+    jclass cached_ae_class;
+    jclass cached_nase_class;
+    jclass cached_cce_class;
     jclass class_not_found_class;
     jclass throwable_class;
     jmethodID get_message_method;
@@ -47,6 +52,7 @@ namespace native_jvm::utils {
         jclass string_clazz = env->FindClass("java/lang/String");
         if (env->ExceptionCheck())
             return;
+        string_class = (jclass) env->NewGlobalRef(string_clazz);
         string_intern_method = env->GetMethodID(string_clazz, "intern", "()Ljava/lang/String;");
         if (env->ExceptionCheck())
             return;
@@ -87,6 +93,38 @@ namespace native_jvm::utils {
             return;
         no_class_def_found_class = (jclass) env->NewGlobalRef(_no_class_def_found_class);
         env->DeleteLocalRef(_no_class_def_found_class);
+
+        jclass _cached_npe = env->FindClass("java/lang/NullPointerException");
+        if (env->ExceptionCheck())
+            return;
+        cached_npe_class = (jclass) env->NewGlobalRef(_cached_npe);
+        env->DeleteLocalRef(_cached_npe);
+        if (env->ExceptionCheck() || cached_npe_class == nullptr)
+            return;
+
+        jclass _cached_ae = env->FindClass("java/lang/ArithmeticException");
+        if (env->ExceptionCheck())
+            return;
+        cached_ae_class = (jclass) env->NewGlobalRef(_cached_ae);
+        env->DeleteLocalRef(_cached_ae);
+        if (env->ExceptionCheck() || cached_ae_class == nullptr)
+            return;
+
+        jclass _cached_nase = env->FindClass("java/lang/NegativeArraySizeException");
+        if (env->ExceptionCheck())
+            return;
+        cached_nase_class = (jclass) env->NewGlobalRef(_cached_nase);
+        env->DeleteLocalRef(_cached_nase);
+        if (env->ExceptionCheck() || cached_nase_class == nullptr)
+            return;
+
+        jclass _cached_cce = env->FindClass("java/lang/ClassCastException");
+        if (env->ExceptionCheck())
+            return;
+        cached_cce_class = (jclass) env->NewGlobalRef(_cached_cce);
+        env->DeleteLocalRef(_cached_cce);
+        if (env->ExceptionCheck() || cached_cce_class == nullptr)
+            return;
 
         ncdf_init_method = env->GetMethodID(no_class_def_found_class, "<init>", "(Ljava/lang/String;)V");
         if (env->ExceptionCheck())
@@ -573,12 +611,35 @@ namespace native_jvm::utils {
     }
 
     void throw_re(JNIEnv *env, const char *exception_class, const char *error, int line) {
-        jclass exception_class_ptr = env->FindClass(exception_class);
-        if (env->ExceptionCheck()) {
-            return;
+        jclass exception_class_ptr = nullptr;
+        bool cached = false;
+        if (std::strcmp(exception_class, "java/lang/NullPointerException") == 0) {
+            exception_class_ptr = cached_npe_class;
+            cached = true;
+        } else if (std::strcmp(exception_class, "java/lang/ArithmeticException") == 0) {
+            exception_class_ptr = cached_ae_class;
+            cached = true;
+        } else if (std::strcmp(exception_class, "java/lang/NegativeArraySizeException") == 0) {
+            exception_class_ptr = cached_nase_class;
+            cached = true;
+        } else if (std::strcmp(exception_class, "java/lang/ClassCastException") == 0) {
+            exception_class_ptr = cached_cce_class;
+            cached = true;
+        }
+        if (cached) {
+            if (exception_class_ptr == nullptr) {
+                return;
+            }
+        } else {
+            exception_class_ptr = env->FindClass(exception_class);
+            if (env->ExceptionCheck()) {
+                return;
+            }
         }
         env->ThrowNew(exception_class_ptr, ("\"" + std::string(error) + "\" on " + std::to_string(line)).c_str());
-        env->DeleteLocalRef(exception_class_ptr);
+        if (!cached) {
+            env->DeleteLocalRef(exception_class_ptr);
+        }
     }
 
     void bastore(JNIEnv *env, jarray array, jint index, jint value) {
@@ -633,6 +694,44 @@ namespace native_jvm::utils {
         if (env->ExceptionCheck())
             return nullptr;
         return result;
+    }
+
+    jboolean string_equals(JNIEnv *env, jstring a, jobject b) {
+        if (env->IsSameObject(a, b)) {
+            return JNI_TRUE;
+        }
+        if (b == nullptr || string_class == nullptr || !env->IsInstanceOf(b, string_class)) {
+            return JNI_FALSE;
+        }
+        jsize na = env->GetStringLength(a);
+        jsize nb = env->GetStringLength((jstring) b);
+        if (na != nb) {
+            return JNI_FALSE;
+        }
+        if (na == 0) {
+            return JNI_TRUE;
+        }
+        jchar buf_a[128];
+        jchar buf_b[128];
+        for (jsize offset = 0; offset < na;) {
+            jsize count = na - offset;
+            if (count > 128) {
+                count = 128;
+            }
+            env->GetStringRegion(a, offset, count, buf_a);
+            if (env->ExceptionCheck()) {
+                return JNI_FALSE;
+            }
+            env->GetStringRegion((jstring) b, offset, count, buf_b);
+            if (env->ExceptionCheck()) {
+                return JNI_FALSE;
+            }
+            if (std::memcmp(buf_a, buf_b, static_cast<size_t>(count) * sizeof(jchar)) != 0) {
+                return JNI_FALSE;
+            }
+            offset += count;
+        }
+        return JNI_TRUE;
     }
 
     void publish_defining_binding(JNIEnv *env, std::atomic<defining_binding *> *head, std::mutex *mtx, jclass clazz) {

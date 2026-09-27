@@ -148,11 +148,14 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
             node.setOpcode(Opcodes.INVOKESTATIC);
         }
 
+        if (tryInline(context, node)) {
+            return;
+        }
+
         Type returnType = Type.getReturnType(node.desc);
         Type[] args = Type.getArgumentTypes(node.desc);
         instructionName += "_" + returnType.getSort();
 
-        StringBuilder argsBuilder = new StringBuilder();
         List<Integer> argOffsets = new ArrayList<>();
 
         int stackOffset = context.stackPointer;
@@ -168,9 +171,11 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
         boolean isStatic = node.getOpcode() == Opcodes.INVOKESTATIC;
         int objectOffset = isStatic ? 0 : 1;
 
-        for (int i = 0; i < argOffsets.size(); i++) {
-            argsBuilder.append(", ").append(context.getSnippets().getSnippet("INVOKE_ARG_" + args[i].getSort(),
-                    Util.createMap("index", argOffsets.get(i))));
+        if (args.length == 0) {
+            props.put("args", ", nullptr");
+        } else {
+            props.put("args", ", __nargs");
+            afterSnippet = "}";
         }
 
         props.put("objectstackindex", String.valueOf(stackOffset - objectOffset));
@@ -199,7 +204,59 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
                 context.getStringPool().get(node.desc),
                 trimmedTryCatchBlock));
 
-        props.put("args", argsBuilder.toString());
+        if (args.length > 0) {
+            context.output.append("{ jvalue __nargs[").append(args.length).append("];");
+            for (int i = 0; i < args.length; i++) {
+                context.output.append(" __nargs[").append(i).append("] = cstack").append(argOffsets.get(i)).append(";");
+            }
+            context.output.append(" ");
+        }
+    }
+
+    private boolean tryInline(MethodContext context, MethodInsnNode node) {
+        if (!context.obfuscator.isInline()) {
+            return false;
+        }
+        int opcode = node.getOpcode();
+        if (opcode != Opcodes.INVOKEVIRTUAL && opcode != Opcodes.INVOKESPECIAL) {
+            return false;
+        }
+        int stackOffset = context.stackPointer;
+        for (Type argType : Type.getArgumentTypes(node.desc)) {
+            stackOffset -= argType.getSize();
+        }
+        int objectIndex = stackOffset - 1;
+        if ("getClass".equals(node.name) && "()Ljava/lang/Class;".equals(node.desc)) {
+            emitChecked(context, objectIndex, "getClass",
+                    "{ cstack" + objectIndex + ".l = env->GetObjectClass(cstack" + objectIndex + ".l); refs.insert(cstack" + objectIndex + ".l); }");
+            return true;
+        }
+        if (!"java/lang/String".equals(node.owner)) {
+            return false;
+        }
+        if ("length".equals(node.name) && "()I".equals(node.desc)) {
+            emitChecked(context, objectIndex, "String.length",
+                    "cstack" + objectIndex + ".i = env->GetStringLength((jstring) cstack" + objectIndex + ".l);");
+            return true;
+        }
+        if ("isEmpty".equals(node.name) && "()Z".equals(node.desc)) {
+            emitChecked(context, objectIndex, "String.isEmpty",
+                    "cstack" + objectIndex + ".i = env->GetStringLength((jstring) cstack" + objectIndex + ".l) == 0 ? 1 : 0;");
+            return true;
+        }
+        if ("equals".equals(node.name) && "(Ljava/lang/Object;)Z".equals(node.desc)) {
+            emitChecked(context, objectIndex, "String.equals",
+                    "cstack" + objectIndex + ".i = (jint) utils::string_equals(env, (jstring) cstack" + objectIndex + ".l, cstack" + stackOffset + ".l);");
+            return true;
+        }
+        return false;
+    }
+
+    private void emitChecked(MethodContext context, int objectIndex, String detail, String body) {
+        context.output.append("if (cstack").append(objectIndex).append(".l == nullptr) utils::throw_re(env, \"java/lang/NullPointerException\", \"")
+                .append(detail).append("\", ").append(context.line).append("); else ").append(body).append(" ");
+        context.output.append(trimmedTryCatchBlock);
+        instructionName = null;
     }
 
     @Override

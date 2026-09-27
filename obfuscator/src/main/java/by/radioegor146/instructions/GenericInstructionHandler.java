@@ -15,10 +15,12 @@ public abstract class GenericInstructionHandler<T extends AbstractInsnNode> impl
     protected Map<String, String> props;
     protected String instructionName;
     protected String trimmedTryCatchBlock;
+    protected String afterSnippet;
 
     @Override
     public void accept(MethodContext context, T node) {
         props = new HashMap<>();
+        afterSnippet = "";
         List<TryCatchBlockNode> tryCatchBlockNodeList = new ArrayList<>();
         for (TryCatchBlockNode tryCatchBlock : context.method.tryCatchBlocks) {
             if (!context.tryCatches.contains(tryCatchBlock)) {
@@ -57,6 +59,9 @@ public abstract class GenericInstructionHandler<T extends AbstractInsnNode> impl
 
         if (instructionName != null) {
             context.output.append(context.obfuscator.getSnippets().getSnippet(instructionName, props));
+        }
+        if (!afterSnippet.isEmpty()) {
+            context.output.append(afterSnippet);
         }
         context.output.append("\n");
     }
