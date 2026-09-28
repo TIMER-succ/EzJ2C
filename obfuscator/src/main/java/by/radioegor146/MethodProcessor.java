@@ -108,21 +108,31 @@ public class MethodProcessor {
 
     public static void declareClassUse(MethodContext context, int classId) {
         if (context.declaredClassUses.add(classId)) {
-            context.output.append(String.format("jclass ccuse_%d = nullptr; ", classId));
+            insertDecl(context, String.format("jclass ccuse_%d = nullptr;\n", classId));
         }
     }
 
     public static void declareFieldUse(MethodContext context) {
         if (!context.declaredFieldUse) {
-            context.output.append("jfieldID f_use = nullptr; ");
+            insertDecl(context, "jfieldID f_use = nullptr;\n");
             context.declaredFieldUse = true;
         }
     }
 
     public static void declareMethodUse(MethodContext context) {
         if (!context.declaredMethodUse) {
-            context.output.append("jmethodID m_use = nullptr; ");
+            insertDecl(context, "jmethodID m_use = nullptr;\n");
             context.declaredMethodUse = true;
+        }
+    }
+
+    private static void insertDecl(MethodContext context, String decl) {
+        if (context.declInsertAt >= 0) {
+            String line = "    " + decl;
+            context.output.insert(context.declInsertAt, line);
+            context.declInsertAt += line.length();
+        } else {
+            context.output.append(decl);
         }
     }
 
@@ -161,10 +171,9 @@ public class MethodProcessor {
 
         output.append("// ").append(Util.escapeCommentString(method.name)).append(Util.escapeCommentString(method.desc)).append("\n");
 
-        String methodName = specialMethodProcessor.preProcess(context);
-        methodName = "__ngen_" + methodName.replace('/', '_');
-        methodName = Util.escapeCppNameString(methodName);
+        String methodName = Util.cppSymbol(specialMethodProcessor.preProcess(context));
         context.cppNativeMethodName = methodName;
+        String bodyName = methodName + "_body";
 
         boolean isStatic = Util.getFlag(method.access, Opcodes.ACC_STATIC);
         context.ret = Type.getReturnType(method.desc);
@@ -175,7 +184,8 @@ public class MethodProcessor {
             context.argTypes.add(0, Type.getType(Object.class));
         }
 
-        if (context.proxyMethod != null) {
+        boolean proxy = context.proxyMethod != null;
+        if (proxy) {
             context.nativeMethod = context.proxyMethod.getMethodNode();
             context.nativeMethod.access |= Opcodes.ACC_NATIVE;
         } else {
@@ -184,30 +194,36 @@ public class MethodProcessor {
                     obfuscator.getStringPool().get(method.desc), methodName));
         }
 
-        output.append(String.format("%s JNICALL %s(JNIEnv *env, ", CPP_TYPES[context.ret.getSort()], methodName));
-        if (context.proxyMethod != null) {
-            output.append("jobject ignored_hidden, ");
-        }
-        output.append(isStatic ? "jclass clazz" : "jobject obj");
-
         ArrayList<String> argNames = new ArrayList<>();
         if (!isStatic) argNames.add("obj");
-
         for (int i = 0; i < args.length; i++) {
             argNames.add("arg" + i);
-            output.append(String.format(", %s arg%d", CPP_TYPES[args[i].getSort()], i));
         }
 
-        output.append(") {").append("\n");
+        String parameters = jniParameterList(proxy, isStatic, args);
+        String arguments = jniArgumentList(proxy, isStatic, args.length);
+        String returnType = CPP_TYPES[context.ret.getSort()];
+        String returnZero = context.ret.getSort() == Type.VOID ? "return;" : String.format("return (%s) 0;", returnType);
 
-        if (context.proxyMethod != null) {
+        output.append(String.format("%s JNICALL %s(%s);\n", returnType, bodyName, parameters));
+        output.append(String.format("%s JNICALL %s(%s) {\n", returnType, methodName, parameters));
+        if (proxy) {
             output.append("    env->DeleteLocalRef(ignored_hidden);\n");
         }
-
-        String returnZero = String.format("return (%s) 0;", CPP_TYPES[context.ret.getSort()]);
         if (!isStatic) {
             output.append("    if (obj == nullptr) { utils::throw_re(env, \"java/lang/NullPointerException\", \"null receiver\", 0); ")
                     .append(returnZero).append(" }\n");
+        }
+        if (context.ret.getSort() == Type.VOID) {
+            output.append("    ").append(bodyName).append("(").append(arguments).append(");\n");
+            output.append("    return;\n");
+        } else {
+            output.append("    return ").append(bodyName).append("(").append(arguments).append(");\n");
+        }
+        output.append("}\n\n");
+
+        output.append(String.format("%s JNICALL %s(%s) {\n", returnType, bodyName, parameters));
+        if (!isStatic) {
             output.append("    jobject receiver_loader = nullptr;\n");
         }
         output.append("    bool cache_classes = false;\n");
@@ -292,7 +308,8 @@ public class MethodProcessor {
             output.append("    ").append(obfuscator.getSnippets().getSnippet(
                     "LOCAL_LOAD_ARG_" + current.getSort(), Util.createMap(
                             "index", localIndex,
-                            "arg", argNames.get(i)
+                            "arg", argNames.get(i),
+                            "rettype", CPP_TYPES[context.ret.getSort()]
                     ))).append("\n");
             localIndex += current.getSize();
         }
@@ -301,6 +318,7 @@ public class MethodProcessor {
         context.argTypes.forEach(t -> context.locals.add(TYPE_TO_STACK[t.getSort()]));
 
         context.stackPointer = 0;
+        context.declInsertAt = output.length();
 
         for (int instruction = 0; instruction < method.instructions.size(); ++instruction) {
             AbstractInsnNode node = method.instructions.get(instruction);
@@ -368,7 +386,34 @@ public class MethodProcessor {
     }
 
     public static String nameFromNode(MethodNode m, ClassNode cn) {
-        return cn.name + '#' + m.name + '!' + m.desc;
+        return directKey(cn.name, m.name, m.desc);
     }
 
+    public static String directKey(String owner, String name, String desc) {
+        return owner + '#' + name + '!' + desc;
+    }
+
+    public static String jniParameterList(boolean proxy, boolean isStatic, Type[] javaArgs) {
+        StringBuilder sb = new StringBuilder("JNIEnv *env");
+        if (proxy) {
+            sb.append(", jobject ignored_hidden");
+        }
+        sb.append(isStatic ? ", jclass clazz" : ", jobject obj");
+        for (int i = 0; i < javaArgs.length; i++) {
+            sb.append(", ").append(CPP_TYPES[javaArgs[i].getSort()]).append(" arg").append(i);
+        }
+        return sb.toString();
+    }
+
+    public static String jniArgumentList(boolean proxy, boolean isStatic, int javaArgCount) {
+        StringBuilder sb = new StringBuilder("env");
+        if (proxy) {
+            sb.append(", ignored_hidden");
+        }
+        sb.append(isStatic ? ", clazz" : ", obj");
+        for (int i = 0; i < javaArgCount; i++) {
+            sb.append(", arg").append(i);
+        }
+        return sb.toString();
+    }
 }

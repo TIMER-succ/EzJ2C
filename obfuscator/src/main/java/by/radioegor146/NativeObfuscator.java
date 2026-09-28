@@ -25,7 +25,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
@@ -80,6 +82,8 @@ public class NativeObfuscator {
 
     private HiddenMethodsPool hiddenMethodsPool;
 
+    private Map<String, DirectTarget> directTargets = Collections.emptyMap();
+
     private int currentClassId;
     private String nativeDir;
     private boolean inline;
@@ -132,6 +136,7 @@ public class NativeObfuscator {
         cMakeBuilder.addMainFile("native_jvm_output.cpp");
         cMakeBuilder.addMainFile("string_pool.hpp");
         cMakeBuilder.addMainFile("string_pool.cpp");
+        cMakeBuilder.addMainFile("native_jvm_direct.hpp");
 
         if (platform == Platform.HOTSPOT) {
             cMakeBuilder.addFlag("USE_HOTSPOT");
@@ -163,6 +168,10 @@ public class NativeObfuscator {
             }
 
             hiddenMethodsPool = new HiddenMethodsPool(nativeDir + "/hidden");
+
+            directTargets = DirectCallIndex.collect(jar, classMethodFilter);
+            Files.write(cppDir.resolve("native_jvm_direct.hpp"),
+                    DirectCallIndex.header(directTargets.values()).getBytes(StandardCharsets.UTF_8));
 
             Integer[] classIndexReference = new Integer[]{0};
 
@@ -451,5 +460,9 @@ public class NativeObfuscator {
 
     public boolean isInline() {
         return inline;
+    }
+
+    public DirectTarget directTarget(String key) {
+        return directTargets.get(key);
     }
 }

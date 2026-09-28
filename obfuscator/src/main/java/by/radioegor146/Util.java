@@ -116,6 +116,14 @@ public class Util {
         }
     }
 
+    public static String cppSymbol(String raw) {
+        return escapeCppNameString("__ngen_" + raw.replace('/', '_'));
+    }
+
+    public static String classCppFile(String internalName, int classIndex) {
+        return String.format("%s_%d", escapeCppNameString(internalName.replace('/', '_')), classIndex);
+    }
+
     public static String escapeCppNameString(String value) {
         Matcher m = Pattern.compile("([^a-zA-Z_0-9])").matcher(value);
         StringBuffer sb = new StringBuffer(value.length());

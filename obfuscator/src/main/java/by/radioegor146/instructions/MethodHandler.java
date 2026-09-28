@@ -152,6 +152,10 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
             return;
         }
 
+        if (tryDirect(context, node)) {
+            return;
+        }
+
         Type returnType = Type.getReturnType(node.desc);
         Type[] args = Type.getArgumentTypes(node.desc);
         instructionName += "_" + returnType.getSort();
@@ -210,6 +214,117 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
                 context.output.append(" __nargs[").append(i).append("] = cstack").append(argOffsets.get(i)).append(";");
             }
             context.output.append(" ");
+        }
+    }
+
+    private boolean tryDirect(MethodContext context, MethodInsnNode node) {
+        int opcode = node.getOpcode();
+        if ("<init>".equals(node.name)) {
+            return false;
+        }
+        boolean isStatic = opcode == Opcodes.INVOKESTATIC;
+        if (!isStatic && opcode != Opcodes.INVOKESPECIAL && opcode != Opcodes.INVOKEVIRTUAL) {
+            return false;
+        }
+        DirectTarget target = context.obfuscator.directTarget(MethodProcessor.directKey(node.owner, node.name, node.desc));
+        if (target == null) {
+            return false;
+        }
+        if (opcode == Opcodes.INVOKEVIRTUAL && !target.isPrivate) {
+            return false;
+        }
+        if (isStatic != target.isStatic) {
+            return false;
+        }
+
+        Type returnType = Type.getReturnType(node.desc);
+        Type[] args = Type.getArgumentTypes(node.desc);
+        List<Integer> argOffsets = new ArrayList<>();
+        int stackOffset = context.stackPointer;
+        for (Type argType : args) {
+            stackOffset -= argType.getSize();
+        }
+        int argumentOffset = stackOffset;
+        for (Type argType : args) {
+            argOffsets.add(argumentOffset);
+            argumentOffset += argType.getSize();
+        }
+
+        int classId = context.getCachedClasses().getId(node.owner);
+        MethodProcessor.emitClassResolve(context, classId, node.owner, trimmedTryCatchBlock);
+        int methodId = context.getCachedMethods().getId(new CachedMethodInfo(node.owner, node.name, node.desc, isStatic));
+        MethodProcessor.declareMethodUse(context);
+        context.output.append(String.format(
+                "if (cache_classes && cclasses[%1$d]) { if (!cmethods[%2$d]) { cmethods[%2$d] = env->Get%3$sMethodID(ccuse_%1$d, %4$s, %5$s); %6$s } m_use = cmethods[%2$d]; } else { m_use = env->Get%3$sMethodID(ccuse_%1$d, %4$s, %5$s); %6$s } ",
+                classId,
+                methodId,
+                isStatic ? "Static" : "",
+                context.getStringPool().get(node.name),
+                context.getStringPool().get(node.desc),
+                trimmedTryCatchBlock));
+        String returnZero = context.ret.getSort() == Type.VOID ? "return;" : "return (" + MethodProcessor.CPP_TYPES[context.ret.getSort()] + ") 0;";
+        context.output.append("if (m_use != nullptr) { ");
+
+        StringBuilder invocation = new StringBuilder();
+        invocation.append(target.qualifiedBody()).append("(env, ");
+        if (isStatic) {
+            invocation.append("ccuse_").append(classId);
+        } else {
+            invocation.append("cstack").append(stackOffset - 1).append(".l");
+        }
+        for (int i = 0; i < args.length; i++) {
+            invocation.append(", ").append(stackArg(args[i].getSort(), argOffsets.get(i)));
+        }
+        invocation.append(")");
+
+        int slot = stackOffset - (isStatic ? 0 : 1);
+        if (!isStatic) {
+            context.output.append("if (cstack").append(stackOffset - 1).append(".l == nullptr) utils::throw_re(env, \"java/lang/NullPointerException\", \"null receiver\", ")
+                    .append(context.line).append("); else ");
+        }
+        context.output.append("{ if (env->PushLocalFrame(64) < 0) { ").append(trimmedTryCatchBlock).append(" } ");
+        int sort = returnType.getSort();
+        if (sort == Type.VOID) {
+            context.output.append(invocation).append("; env->PopLocalFrame(nullptr); ");
+        } else if (sort == Type.ARRAY || sort == Type.OBJECT) {
+            context.output.append("jobject __direct = ").append(invocation).append("; ");
+            context.output.append("if (env->ExceptionCheck()) { env->PopLocalFrame(nullptr); ").append(trimmedTryCatchBlock).append(" } ");
+            context.output.append("cstack").append(slot).append(".l = env->PopLocalFrame(__direct); refs.insert(cstack").append(slot).append(".l); ");
+        } else {
+            String field = sort == Type.FLOAT ? ".f" : sort == Type.LONG ? ".j" : sort == Type.DOUBLE ? ".d" : ".i";
+            String cast = sort == Type.INT || sort == Type.FLOAT || sort == Type.LONG || sort == Type.DOUBLE ? "" : "(jint) ";
+            context.output.append(MethodProcessor.CPP_TYPES[sort]).append(" __direct = ").append(invocation).append("; env->PopLocalFrame(nullptr); ");
+            context.output.append("cstack").append(slot).append(field).append(" = ").append(cast).append("__direct; ");
+        }
+        context.output.append("} } else { ").append(returnZero).append(" } ");
+        context.output.append(trimmedTryCatchBlock);
+        instructionName = null;
+        return true;
+    }
+
+    private static String stackArg(int sort, int index) {
+        String slot = "cstack" + index;
+        switch (sort) {
+            case Type.BOOLEAN:
+                return "(jboolean) " + slot + ".i";
+            case Type.CHAR:
+                return "(jchar) " + slot + ".i";
+            case Type.BYTE:
+                return "(jbyte) " + slot + ".i";
+            case Type.SHORT:
+                return "(jshort) " + slot + ".i";
+            case Type.INT:
+                return slot + ".i";
+            case Type.FLOAT:
+                return slot + ".f";
+            case Type.LONG:
+                return slot + ".j";
+            case Type.DOUBLE:
+                return slot + ".d";
+            case Type.ARRAY:
+                return "(jarray) " + slot + ".l";
+            default:
+                return slot + ".l";
         }
     }
 

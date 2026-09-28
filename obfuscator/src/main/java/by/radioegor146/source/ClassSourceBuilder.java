@@ -29,7 +29,7 @@ public class ClassSourceBuilder implements AutoCloseable {
     public ClassSourceBuilder(Path cppOutputDir, String className, int classIndex, StringPool stringPool) throws IOException {
         this.className = className;
         this.stringPool = stringPool;
-        filename = String.format("%s_%d", Util.escapeCppNameString(className.replace('/', '_')), classIndex);
+        filename = Util.classCppFile(className, classIndex);
 
         cppFile = cppOutputDir.resolve(filename.concat(".cpp"));
         hppFile = cppOutputDir.resolve(filename.concat(".hpp"));
@@ -40,6 +40,7 @@ public class ClassSourceBuilder implements AutoCloseable {
     public void addHeader(int strings, int classes, int methods, int fields) throws IOException {
         cppWriter.append("#include \"../native_jvm.hpp\"\n");
         cppWriter.append("#include \"../string_pool.hpp\"\n");
+        cppWriter.append("#include \"../native_jvm_direct.hpp\"\n");
         cppWriter.append("#include \"").append(getHppFilename()).append("\"\n");
         cppWriter.append("\n");
         cppWriter.append("// ").append(Util.escapeCommentString(className)).append("\n");

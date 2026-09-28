@@ -40,6 +40,8 @@ public class MethodContext {
 
     public boolean declaredMethodUse;
 
+    public int declInsertAt = -1;
+
     private final LabelPool labelPool = new LabelPool();
 
     public String cppNativeMethodName;
