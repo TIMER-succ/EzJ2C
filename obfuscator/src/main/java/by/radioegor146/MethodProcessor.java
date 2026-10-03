@@ -126,7 +126,7 @@ public class MethodProcessor {
         }
     }
 
-    private static void insertDecl(MethodContext context, String decl) {
+    public static void insertDecl(MethodContext context, String decl) {
         if (context.declInsertAt >= 0) {
             String line = "    " + decl;
             context.output.insert(context.declInsertAt, line);
@@ -299,7 +299,7 @@ public class MethodProcessor {
             output.append(";\n");
         }
 
-        output.append("    std::unordered_set<jobject> refs;\n");
+        output.append("    std::vector<jobject> local_refs;\n");
         output.append("\n");
 
         int localIndex = 0;
@@ -317,19 +317,41 @@ public class MethodProcessor {
 
         context.argTypes.forEach(t -> context.locals.add(TYPE_TO_STACK[t.getSort()]));
 
+        context.arrayPlan = PrimitiveArrays.analyze(method, context.clazz.name);
         context.stackPointer = 0;
         context.declInsertAt = output.length();
+        context.arrayPlan.emitDecls(context);
 
         for (int instruction = 0; instruction < method.instructions.size(); ++instruction) {
             AbstractInsnNode node = method.instructions.get(instruction);
+            String prefix = context.arrayPlan.prefix(context, node);
+            if (prefix != null) {
+                output.append("    ").append(prefix).append("\n");
+            }
+            if (node instanceof LabelNode) {
+                String enter = context.arrayPlan.enter(context, (LabelNode) node);
+                if (enter != null) {
+                    output.append(enter);
+                }
+            }
             context.output.append("    // ").append(Util.escapeCommentString(handlers[node.getType()]
                     .insnToString(context, node))).append("; Stack: ").append(context.stackPointer).append("\n");
-            handlers[node.getType()].accept(context, node);
+            String replacement = context.arrayPlan.replacement(context, node);
+            if (replacement != null) {
+                output.append("    ").append(replacement).append("\n");
+            } else {
+                handlers[node.getType()].accept(context, node);
+            }
             context.stackPointer = handlers[node.getType()].getNewStackPointer(node, context.stackPointer);
             context.output.append("    // New stack: ").append(context.stackPointer).append("\n");
         }
 
+        String endRelease = context.arrayPlan.endPrefix(context);
+        if (endRelease != null) {
+            output.append("    ").append(endRelease).append("\n");
+        }
         output.append(String.format("    return (%s) 0;\n", CPP_TYPES[context.ret.getSort()]));
+        context.arrayPlan.emitStubs(output);
 
         boolean hasAddedNewBlocks = true;
 

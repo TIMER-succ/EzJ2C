@@ -70,7 +70,7 @@ public class FrameHandler implements InstructionTypeHandler<FrameNode> {
             context.output.append("    ");
             for (int type : context.stack) {
                 if (type == 0) {
-                    context.output.append("refs.erase(cstack").append(currentSp).append(".l); ");
+                    context.output.append("utils::untrack_ref(local_refs, cstack").append(currentSp).append(".l); ");
                 }
                 currentSp += Math.max(1, type);
             }
@@ -82,13 +82,13 @@ public class FrameHandler implements InstructionTypeHandler<FrameNode> {
             context.output.append("    ");
             for (int type : context.locals) {
                 if (type == 0) {
-                    context.output.append("refs.erase(clocal").append(currentLp).append(".l); ");
+                    context.output.append("utils::untrack_ref(local_refs, clocal").append(currentLp).append(".l); ");
                 }
                 currentLp += Math.max(1, type);
             }
             context.output.append("\n");
         }
-        context.output.append("    utils::clear_refs(env, refs);\n");
+        context.output.append("    utils::clear_refs(env, local_refs);\n");
     }
 
     @Override

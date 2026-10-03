@@ -4,7 +4,10 @@ import by.radioegor146.*;
 import by.radioegor146.bytecode.PreprocessorUtils;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.*;
+import org.objectweb.asm.tree.AnnotationNode;
+import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.VarInsnNode;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -71,7 +74,7 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
             }
 
             context.output.append("cstack").append(stackOffset).append(".l = utils::link_call_site(env")
-                    .append(argsBuilder).append("); ");
+                    .append(argsBuilder).append("); local_refs.push_back(cstack").append(stackOffset).append(".l); ");
             context.output.append(trimmedTryCatchBlock);
             instructionName = null;
             return;
@@ -289,7 +292,7 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
         } else if (sort == Type.ARRAY || sort == Type.OBJECT) {
             context.output.append("jobject __direct = ").append(invocation).append("; ");
             context.output.append("if (env->ExceptionCheck()) { env->PopLocalFrame(nullptr); ").append(trimmedTryCatchBlock).append(" } ");
-            context.output.append("cstack").append(slot).append(".l = env->PopLocalFrame(__direct); refs.insert(cstack").append(slot).append(".l); ");
+            context.output.append("cstack").append(slot).append(".l = env->PopLocalFrame(__direct); local_refs.push_back(cstack").append(slot).append(".l); ");
         } else {
             String field = sort == Type.FLOAT ? ".f" : sort == Type.LONG ? ".j" : sort == Type.DOUBLE ? ".d" : ".i";
             String cast = sort == Type.INT || sort == Type.FLOAT || sort == Type.LONG || sort == Type.DOUBLE ? "" : "(jint) ";
@@ -343,7 +346,7 @@ public class MethodHandler extends GenericInstructionHandler<MethodInsnNode> {
         int objectIndex = stackOffset - 1;
         if ("getClass".equals(node.name) && "()Ljava/lang/Class;".equals(node.desc)) {
             emitChecked(context, objectIndex, "getClass",
-                    "{ cstack" + objectIndex + ".l = env->GetObjectClass(cstack" + objectIndex + ".l); refs.insert(cstack" + objectIndex + ".l); }");
+                    "{ cstack" + objectIndex + ".l = env->GetObjectClass(cstack" + objectIndex + ".l); local_refs.push_back(cstack" + objectIndex + ".l); }");
             return true;
         }
         if (!"java/lang/String".equals(node.owner)) {

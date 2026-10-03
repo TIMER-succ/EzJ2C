@@ -19,7 +19,7 @@
 #include <cstring>
 #include <string>
 #include <cstdio>
-#include <unordered_set>
+#include <vector>
 #include <mutex>
 #include <atomic>
 #include <initializer_list>
@@ -112,7 +112,17 @@ namespace native_jvm::utils {
     void bastore(JNIEnv *env, jarray array, jint index, jint value);
     jbyte baload(JNIEnv *env, jarray array, jint index);
 
-    void clear_refs(JNIEnv *env, std::unordered_set<jobject> &refs);
+    inline void untrack_ref(std::vector<jobject> &refs, jobject value) {
+        for (size_t i = 0; i < refs.size(); ++i) {
+            if (refs[i] == value) {
+                refs[i] = refs.back();
+                refs.pop_back();
+                return;
+            }
+        }
+    }
+
+    void clear_refs(JNIEnv *env, std::vector<jobject> &refs);
 
     jstring get_interned(JNIEnv *env, jstring value);
 

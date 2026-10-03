@@ -21,34 +21,12 @@ public abstract class GenericInstructionHandler<T extends AbstractInsnNode> impl
     public void accept(MethodContext context, T node) {
         props = new HashMap<>();
         afterSnippet = "";
-        List<TryCatchBlockNode> tryCatchBlockNodeList = new ArrayList<>();
-        for (TryCatchBlockNode tryCatchBlock : context.method.tryCatchBlocks) {
-            if (!context.tryCatches.contains(tryCatchBlock)) {
-                continue;
-            }
-            if (tryCatchBlockNodeList.stream().noneMatch(tryCatchBlockNode ->
-                    Objects.equals(tryCatchBlockNode.type, tryCatchBlock.type))) {
-                tryCatchBlockNodeList.add(tryCatchBlock);
-            }
-        }
         instructionName = MethodProcessor.INSTRUCTIONS.getOrDefault(node.getOpcode(), "NOTFOUND");
         props.put("line", String.valueOf(context.line));
-        StringBuilder tryCatch = new StringBuilder("\n");
-        tryCatch.append("    ");
-        if (tryCatchBlockNodeList.size() > 0) {
-            String tryCatchLabelName = context.catches.computeIfAbsent(new CatchesBlock(tryCatchBlockNodeList.stream().map(item ->
-                    new CatchesBlock.CatchBlock(item.type, item.handler)).collect(Collectors.toList())),
-                    key -> String.format("L_CATCH_%d", context.catches.size()));
-            tryCatch.append(context.getSnippets().getSnippet("TRYCATCH_START"));
-            tryCatch.append(" goto ").append(tryCatchLabelName).append("; }");
-        } else {
-            tryCatch.append(context.getSnippets().getSnippet("TRYCATCH_EMPTY", Util.createMap(
-                    "rettype", MethodProcessor.CPP_TYPES[context.ret.getSort()]
-            )));
-        }
-        props.put("trycatchhandler", tryCatch.toString());
+        String tryCatchText = tryCatchHandler(context, context.tryCatches);
+        props.put("trycatchhandler", tryCatchText);
         props.put("rettype", MethodProcessor.CPP_TYPES[context.ret.getSort()]);
-        trimmedTryCatchBlock = tryCatch.toString().trim().replace('\n', ' ');
+        trimmedTryCatchBlock = tryCatchText.trim().replace('\n', ' ');
 
         for (int i = -5; i <= 5; i++) {
             props.put("stackindex" + (i >= 0 ? i : "m" + (-i)), String.valueOf(context.stackPointer + i));
@@ -64,6 +42,35 @@ public abstract class GenericInstructionHandler<T extends AbstractInsnNode> impl
             context.output.append(afterSnippet);
         }
         context.output.append("\n");
+    }
+
+    public static String tryCatchHandler(MethodContext context, Collection<TryCatchBlockNode> active) {
+        List<TryCatchBlockNode> tryCatchBlockNodeList = new ArrayList<>();
+        if (context.method.tryCatchBlocks != null && active != null) {
+            for (TryCatchBlockNode tryCatchBlock : context.method.tryCatchBlocks) {
+                if (!active.contains(tryCatchBlock)) {
+                    continue;
+                }
+                if (tryCatchBlockNodeList.stream().noneMatch(tryCatchBlockNode ->
+                        Objects.equals(tryCatchBlockNode.type, tryCatchBlock.type))) {
+                    tryCatchBlockNodeList.add(tryCatchBlock);
+                }
+            }
+        }
+        StringBuilder tryCatch = new StringBuilder("\n");
+        tryCatch.append("    ");
+        if (tryCatchBlockNodeList.size() > 0) {
+            String tryCatchLabelName = context.catches.computeIfAbsent(new CatchesBlock(tryCatchBlockNodeList.stream().map(item ->
+                    new CatchesBlock.CatchBlock(item.type, item.handler)).collect(Collectors.toList())),
+                    key -> String.format("L_CATCH_%d", context.catches.size()));
+            tryCatch.append(context.getSnippets().getSnippet("TRYCATCH_START"));
+            tryCatch.append(" goto ").append(tryCatchLabelName).append("; }");
+        } else {
+            tryCatch.append(context.getSnippets().getSnippet("TRYCATCH_EMPTY", Util.createMap(
+                    "rettype", MethodProcessor.CPP_TYPES[context.ret.getSort()]
+            )));
+        }
+        return tryCatch.toString();
     }
 
     protected abstract void process(MethodContext context, T node);

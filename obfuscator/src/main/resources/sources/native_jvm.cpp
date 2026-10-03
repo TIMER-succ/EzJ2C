@@ -643,18 +643,21 @@ namespace native_jvm::utils {
     }
 
     void bastore(JNIEnv *env, jarray array, jint index, jint value) {
-        if (env->IsInstanceOf(array, boolean_array_class))
-            env->SetBooleanArrayRegion((jbooleanArray) array, index, 1, (jboolean*) (&value));
-        else
+        if (env->IsInstanceOf(array, boolean_array_class)) {
+            jboolean narrowed = (jboolean) (value & 1);
+            env->SetBooleanArrayRegion((jbooleanArray) array, index, 1, &narrowed);
+        } else
             env->SetByteArrayRegion((jbyteArray) array, index, 1, (jbyte*) (&value));
     }
 
     jbyte baload(JNIEnv *env, jarray array, jint index) {
-        jbyte ret_value;
-        if (env->IsInstanceOf(array, boolean_array_class))
-            env->GetBooleanArrayRegion((jbooleanArray) array, index, 1, (jboolean*) (&ret_value));
-        else
-            env->GetByteArrayRegion((jbyteArray) array, index, 1, (jbyte*) (&ret_value));
+        if (env->IsInstanceOf(array, boolean_array_class)) {
+            jboolean value = 0;
+            env->GetBooleanArrayRegion((jbooleanArray) array, index, 1, &value);
+            return (jbyte) (value & 1);
+        }
+        jbyte ret_value = 0;
+        env->GetByteArrayRegion((jbyteArray) array, index, 1, &ret_value);
         return ret_value;
     }
 
@@ -682,10 +685,9 @@ namespace native_jvm::utils {
         return lookup;
     }
 
-    void clear_refs(JNIEnv *env, std::unordered_set<jobject> &refs) {
+    void clear_refs(JNIEnv *env, std::vector<jobject> &refs) {
         for (jobject ref : refs)
-            if (env->GetObjectRefType(ref) == JNILocalRefType)
-                env->DeleteLocalRef(ref);
+            env->DeleteLocalRef(ref);
         refs.clear();
     }
 

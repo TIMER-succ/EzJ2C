@@ -83,7 +83,7 @@ public class DirectCallEmitTest {
             assertTrue(region(all, "INVOKESTATIC Same.flag(I)Z").contains("_body("));
             assertFalse(region(all, "INVOKESTATIC Same.flag(I)Z").contains("CallStaticBooleanMethod"));
             String name = region(all, "INVOKESTATIC Same.name()Ljava/lang/String;");
-            assertTrue(name.contains("refs.insert"));
+            assertTrue(name.contains("local_refs.push_back"));
             assertTrue(name.contains("PushLocalFrame"));
             assertTrue(name.contains("PopLocalFrame"));
 

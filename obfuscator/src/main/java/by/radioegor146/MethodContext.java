@@ -46,6 +46,8 @@ public class MethodContext {
 
     public String cppNativeMethodName;
 
+    public PrimitiveArrays.Plan arrayPlan;
+
     public MethodContext(NativeObfuscator obfuscator, MethodNode method, int methodIndex, ClassNode clazz,
                          int classIndex) {
         this.obfuscator = obfuscator;

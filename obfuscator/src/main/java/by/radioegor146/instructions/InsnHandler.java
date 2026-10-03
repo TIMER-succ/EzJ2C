@@ -8,7 +8,21 @@ import org.objectweb.asm.tree.InsnNode;
 public class InsnHandler extends GenericInstructionHandler<InsnNode> {
 
     @Override
-    protected void process(MethodContext context, InsnNode node) {}
+    protected void process(MethodContext context, InsnNode node) {
+        if (context.arrayPlan == null) {
+            return;
+        }
+        int op = node.getOpcode();
+        if (op != Opcodes.BALOAD && op != Opcodes.BASTORE) {
+            return;
+        }
+        String kind = context.arrayPlan.byteKind(node);
+        if ("[B".equals(kind)) {
+            instructionName = op == Opcodes.BALOAD ? "BALOAD_BYTE" : "BASTORE_BYTE";
+        } else if ("[Z".equals(kind)) {
+            instructionName = op == Opcodes.BALOAD ? "BALOAD_BOOL" : "BASTORE_BOOL";
+        }
+    }
 
     @Override
     public String insnToString(MethodContext context, InsnNode node) {
